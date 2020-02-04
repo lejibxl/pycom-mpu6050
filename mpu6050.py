@@ -3,10 +3,12 @@ from machine import Pin, I2C, PWM
 import time
 import micropython
 from ustruct import unpack
+import logging.logging as logging
 
-from mpu6050Const import *
-import mpu6050Cfilter as cfilter
+from mpu6050.mpu6050Const import *
+import mpu6050.mpu6050Cfilter as cfilter
 
+l = logging.getLogger(__name__)
 micropython.alloc_emergency_exception_buf(100)
 
 default_pin_scl = 'P10'
@@ -57,6 +59,7 @@ class MPU(object):
         self.init_i2c()
         self.init_device()
 
+
     def write_byte(self, reg, val):
         self.bus.writeto_mem(self.address, reg, bytes([val]))
 
@@ -78,11 +81,11 @@ class MPU(object):
         return unpack('>h', buf)[0]
 
     def init_i2c(self):
-        print('* initializing i2c')
+        l.debug('* initializing i2c')
         self.bus = I2C(0, mode=I2C.MASTER, pins=(self.pin_sda,self.pin_scl))
 
     def init_pins(self):
-        print('* initializing pins')
+        l.debug('* initializing pins')
         self.pin_sda = Pin(self.sda)
         self.pin_scl = Pin(self.scl)
         self.pin_intr = Pin(self.intr, mode=Pin.IN)
@@ -112,13 +115,13 @@ class MPU(object):
         pass
 
     def identify(self):
-        print('* identifying i2c device')
+        l.debug('* identifying i2c device')
         val = self.read_byte(MPU6050_RA_WHO_AM_I)
         if val != MPU6050_ADDRESS_AD0_LOW:
             raise OSError("No mpu6050 at address {}".format(self.address))
 
     def reset(self):
-        print('* reset')
+        l.debug('* reset')
         '''
         self.write_byte(MPU6050_RA_PWR_MGMT_1, (
             (1 << MPU6050_PWR1_DEVICE_RESET_BIT)
@@ -133,7 +136,7 @@ class MPU(object):
         time.sleep_ms(100)
 
     def init_device(self):
-        print('* initializing mpu')
+        l.debug('* initializing mpu')
 
         self.identify()
 
@@ -235,7 +238,7 @@ class MPU(object):
 
 
     def wait_for_stable(self, numsamples=10):
-        print('* waiting for gyros to stabilize')
+        l.debug('* waiting for gyros to stabilize')
 
         gc.collect()
         time_start = time.time()
@@ -263,12 +266,12 @@ class MPU(object):
                 totals = [a+b for a,b in zip(deltas, totals)]
 
             avg = [a/numsamples for a in totals]
-            print("* delta = {}".format(avg))
+            l.debug("* delta = {}".format(avg))
             if all(x < self.max_gyro_variance for x in avg):
                 break
 
         now = time.time()
-        print('* gyros stable after {:0.2f} seconds'.format(now-time_start))
+        l.debug('* gyros stable after {:0.2f} seconds'.format(now-time_start))
 
     def calibrate(self,
                   numsamples=None,
@@ -285,7 +288,7 @@ class MPU(object):
         gyro_deadzone = (gyro_deadzone if gyro_deadzone is not None
                          else default_calibration_gyro_deadzone)
 
-        print('* start calibration')
+        l.debug('* start calibration')
         self.set_state_calibrating()
 
         try:
@@ -306,7 +309,7 @@ class MPU(object):
 
                 check = [0 if expected[i] is None else expected[i] - avg[i]
                        for i in range(7)]
-                print('- pass {}: {}'.format(passno, check))
+                l.debug('- pass {}: {}'.format(passno, check))
 
                 # check if current values are within acceptable offsets
                 # from the expected values
@@ -329,16 +332,16 @@ class MPU(object):
                 raise CalibrationFailure()
         except CalibrationFailure:
             self.calibration = old_calibration
-            print('! calibration failed')
+            l.info('! calibration failed')
             self.set_state_uncalibrated()
             return
 
-        print('* calibrated!')
+        l.info('* calibrated!')
         self.set_state_calibrated()
 
     def _WakeOnMotionINT(self,pin_o):
-        print("interrupt ok")
-        print("got an interrupt in pin %s" % (pin_o.id()))
+        l.debug("interrupt ok")
+        l.info("got an interrupt in pin %s" % (pin_o.id()))
         a=mpu.read_byte(MPU6050_RA_INT_STATUS) #Reset Interrupts
         if self.WOM_handler is not None:
             self.WOM_handler(pin_o)
